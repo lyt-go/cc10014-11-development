@@ -29,6 +29,10 @@ class Store:
         self._archive_records: list[dict[str, Any]] = []
         # 补数区间记录
         self._backfill_partitions: dict[str, list[dict[str, Any]]] = {}
+        # DWD增量构建日志: dwd表名 -> [构建记录]（水位历史可回查）
+        self._inc_build_logs: dict[str, list[dict[str, Any]]] = {}
+        # 增量构建幂等索引: request_id -> 构建记录（仅登记成功落库的构建）
+        self._inc_request_index: dict[str, dict[str, Any]] = {}
 
     def module_names(self) -> list[str]:
         return sorted(self._tables)
@@ -165,6 +169,28 @@ class Store:
 
     def get_backfill_partitions(self, job_id: str) -> list[dict[str, Any]]:
         return list(self._backfill_partitions.get(job_id, []))
+
+    # ---- DWD增量构建日志与幂等 ----
+
+    def append_inc_build_log(self, table_name: str, log: dict[str, Any]) -> None:
+        """追加一条增量构建日志；成功落库的构建同时登记幂等索引。"""
+        self._inc_build_logs.setdefault(table_name, []).append(log)
+        request_id = str(log.get("request_id") or "").strip()
+        if request_id and log.get("status") == "成功":
+            self._inc_request_index[request_id] = log
+
+    def inc_build_logs(self, table_name: str) -> list[dict[str, Any]]:
+        return list(self._inc_build_logs.get(table_name, []))
+
+    def find_inc_build(self, request_id: str) -> dict[str, Any] | None:
+        return self._inc_request_index.get(request_id)
+
+    def register_inc_request(self, key: str, log: dict[str, Any]) -> None:
+        """登记额外的幂等键（如按明细表+批次组合的隐式键）指向同一条成功构建。"""
+        self._inc_request_index[key] = log
+
+    def next_inc_build_id(self) -> int:
+        return sum(len(logs) for logs in self._inc_build_logs.values()) + 1
 
 
 store = Store()

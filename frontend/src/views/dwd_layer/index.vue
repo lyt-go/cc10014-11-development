@@ -48,6 +48,17 @@
             >
               {{ action }}
             </button>
+            <button
+              class="link"
+              type="button"
+              :data-testid="`action-${row.id}-增量构建`"
+              @click="buildIncremental(row)"
+            >
+              增量构建
+            </button>
+            <RouterLink class="link" :to="`/dwd_layer/${row.id}`" :data-testid="`detail-${row.id}`">
+              详情
+            </RouterLink>
           </td>
         </tr>
         <tr v-if="!rows.length">
@@ -74,6 +85,7 @@
 
     <footer class="page-foot">
       <span>共 {{ total }} 条明细层管理记录</span>
+      <span v-if="noticeMessage" class="notice-text">{{ noticeMessage }}</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
     </footer>
   </section>
@@ -95,6 +107,7 @@ const metricNames = ["明细表总数", "待校验表", "已上线表"]
 const rows = ref<Row[]>([])
 const total = ref(0)
 const errorMessage = ref('')
+const noticeMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
 const showCreate = ref(false)
@@ -165,6 +178,25 @@ async function runAction(action: string, row: Row) {
     await reload()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '明细层管理操作失败'
+  }
+}
+
+async function buildIncremental(row: Row) {
+  errorMessage.value = ''
+  noticeMessage.value = ''
+  try {
+    const response = await request(`${ENDPOINT}/${row.id}/build_incremental`, {
+      method: 'POST',
+      body: JSON.stringify({ request_id: `list-${row.id}-${Date.now()}` }),
+    })
+    const payload = await response.json()
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.reason || payload.message || '增量构建失败，请稍后重试')
+    }
+    noticeMessage.value = payload.reason || payload.message || '增量构建完成'
+    await reload()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '增量构建失败，请稍后重试'
   }
 }
 

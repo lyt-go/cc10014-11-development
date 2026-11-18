@@ -79,12 +79,13 @@ class DwsLayerService:
         if not dwd_entry:
             return {"ok": False, "message": f"来源明细表 {dwd_code} 不存在"}
         dwd_table = dwd_entry.get("表名称", "")
-        dwd_data = store.table_rows(dwd_table)
+        # 只消费有效版本行：迟到分区的旧版本已失效，汇总层始终只看到一份完整增量结果
+        dwd_data = [r for r in store.table_rows(dwd_table) if r.get("_valid", True)]
         if not dwd_data:
             from app.services.dwd_layer import DwdLayerService
             dwd_svc = DwdLayerService()
             dwd_svc.build_dwd_from_ods(dwd_entry["id"])
-            dwd_data = store.table_rows(dwd_table)
+            dwd_data = [r for r in store.table_rows(dwd_table) if r.get("_valid", True)]
         dims = [d.strip() for d in entry.get("汇总维度", "").split(",")]
         measure = entry.get("度量字段", "")
         agg_func = entry.get("聚合函数", "SUM")

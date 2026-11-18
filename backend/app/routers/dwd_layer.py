@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import io
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -97,6 +98,37 @@ def build_dwd(entry_id: int) -> dict[str, Any]:
     """从关联ODS表读取数据，应用清洗+去重，生成DWD表。"""
     result = service.build_dwd_from_ods(entry_id)
     return result
+
+
+@router.post("/{entry_id}/build_incremental")
+def build_incremental(entry_id: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """按刷新水位增量构建ODS新增批次，生成DWD增量明细表。
+
+    - 只处理未处理批次，明细与水位在同一边界内落库；
+    - 携带 request_id 重复提交只生效一次；同一水位重复构建没有新增行；
+    - 空态/失败会说明原因，可安全重试。
+    """
+    request_id = str((payload or {}).get("request_id") or "").strip() or None
+    return service.build_incremental(entry_id, request_id=request_id)
+
+
+@router.post("/{entry_id}/simulate_ods_batch")
+def simulate_ods_batch(entry_id: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """模拟父层ODS新批次到达；late=true 时模拟业务日期落在已处理窗口的迟到批次。"""
+    late = bool((payload or {}).get("late"))
+    result = service.simulate_ods_batch(entry_id, late=late)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("message", "模拟批次失败"))
+    return result
+
+
+@router.get("/{entry_id}/incremental")
+def get_incremental_detail(entry_id: int) -> dict[str, Any]:
+    """DWD增量明细表详情：当前水位、构建日志（水位可回查）、有效明细行与窗口版本。"""
+    detail = service.get_incremental_detail(entry_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"明细表 {entry_id} 不存在或已归档")
+    return detail
 
 
 @router.get("/{entry_id}/data")
